@@ -1,0 +1,24 @@
+services:
+  - type: worker
+    name: orchestrator
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    startCommand: python -m agents.orchestrator
+
+  - type: worker
+    name: twitch-client
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    startCommand: python -m twitch_client.main
+
+  - type: worker
+    name: streamer
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    startCommand: python -m streamer.main
+
+  - type: web
+    name: api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    startCommand: uvicorn agents.analytics:app --host 0.0.0.0 --port $PORT

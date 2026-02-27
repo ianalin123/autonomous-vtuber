@@ -1,0 +1,22 @@
+version: "3.9"
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  orchestrator:
+    build: .
+    command: python -m agents.orchestrator
+    env_file: .env.local
+    depends_on: [redis]
+
+  twitch-client:
+    build: .
+    command: python -m twitch_client.main
+    env_file: .env.local
+    depends_on: [redis]
+
+  streamer:
+    build: .
+    command: python -m streamer.main
+    env_file: .env.local
