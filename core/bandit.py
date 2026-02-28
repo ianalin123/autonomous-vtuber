@@ -1,7 +1,9 @@
 """Thompson Sampling contextual bandit for engagement-revenue optimization."""
 from __future__ import annotations
+import json
 import random
 from enum import Enum
+from pathlib import Path
 
 
 class Action(str, Enum):
@@ -57,3 +59,26 @@ class ThompsonBandit:
             }
             for action, arm in self._arms.items()
         }
+
+    def save(self, path: str) -> None:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(self.state(), indent=2))
+
+    @classmethod
+    def load(cls, path: str) -> ThompsonBandit:
+        data = json.loads(Path(path).read_text())
+        actions = [Action(name) for name in data]
+        bandit = cls(actions)
+        for name, arm_data in data.items():
+            action = Action(name)
+            bandit._arms[action]["alpha"] = arm_data["alpha"]
+            bandit._arms[action]["beta"] = arm_data["beta"]
+        return bandit
+
+    @classmethod
+    def load_or_create(cls, path: str) -> ThompsonBandit:
+        try:
+            return cls.load(path)
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+            return cls(list(Action))

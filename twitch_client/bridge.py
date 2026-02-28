@@ -69,6 +69,12 @@ class TwitchBridge:
             if msg_type == "control" and text == "conversation-chain-end":
                 logger.info("[bridge] OLV is idle — ready for next Twitch message")
                 self._ready.set()
+            elif msg_type == "backend-synth-complete":
+                # OLV finished generating all TTS audio and is waiting for playback
+                # confirmation before sending conversation-chain-end. Since we're
+                # headless (no audio playback), ack immediately.
+                logger.debug("[bridge] backend-synth-complete → sending frontend-playback-complete")
+                await ws.send(json.dumps({"type": "frontend-playback-complete"}))
             elif msg_type == "full-text":
                 logger.info(f"[bridge] OLV: {text!r}")
             elif msg_type == "error":

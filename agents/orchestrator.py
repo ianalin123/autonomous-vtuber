@@ -5,6 +5,8 @@ from anthropic import Anthropic
 from core.config import settings
 from core.event_bus import EventBus
 from core.interfaces import Event, EventType
+from core.bandit import ThompsonBandit, Action
+from agents.analytics import MetricsCollector
 
 TOOLS = [
     {
@@ -45,13 +47,44 @@ TOOLS = [
 
 
 class OrchestratorAgent:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        collector: MetricsCollector | None = None,
+        bandit: ThompsonBandit | None = None,
+        bandit_save_path: str | None = None,
+    ) -> None:
         self._client = Anthropic(api_key=settings.anthropic_api_key)
+        self._collector = collector
+        self._bandit = bandit
+        self._bandit_save_path = bandit_save_path
         try:
             with open("persona/character.md") as f:
                 self._system = f.read()
         except FileNotFoundError:
             self._system = "You are Aiko, an autonomous VTuber. Be engaging and entertaining."
+
+    def _build_context(self, current_activity: str = "idle") -> str:
+        if self._collector is None:
+            return "Current stream state: idle. Chat is quiet. What should Aiko do?"
+
+        snap = self._collector.snapshot()
+        parts = [
+            f"Stream state: {snap['viewer_count']} viewers, "
+            f"chat velocity {snap['chat_velocity']} msg/min, "
+            f"engagement {snap['engagement_score']}/100, "
+            f"revenue ${snap['donations_per_hour']:.1f}/hr.",
+            f"Current activity: {current_activity}.",
+        ]
+
+        if self._bandit:
+            suggested = self._bandit.select()
+            parts.append(
+                f"The optimization system suggests trying: {suggested.value}. "
+                f"You can follow or override this suggestion."
+            )
+
+        parts.append("Based on this, what should Aiko do next?")
+        return " ".join(parts)
 
     async def decide(self, context: str) -> list[dict]:
         response = self._client.messages.create(
@@ -67,10 +100,36 @@ class OrchestratorAgent:
             if block.type == "tool_use"
         ]
 
-    async def run_loop(self, bus: EventBus, poll_interval: float = 5.0) -> None:
+    def _record_action(self, action_name: str) -> None:
+        if not self._bandit:
+            return
+        action_map = {
+            "talk": Action.TALK,
+            "react": Action.REACT,
+            "game": Action.GAME,
+            "q_and_a": Action.QA,
+            "idle": Action.IDLE,
+        }
+        action = action_map.get(action_name)
+        if action:
+            reward = 0.0
+            if self._collector:
+                snap = self._collector.snapshot()
+                reward = min(snap["engagement_score"] / 100, 1.0)
+            self._bandit.update(action, reward)
+            if self._bandit_save_path:
+                self._bandit.save(self._bandit_save_path)
+
+    async def run_loop(
+        self,
+        bus: EventBus,
+        poll_interval: float = 5.0,
+        current_activity_getter=None,
+    ) -> None:
         """Main orchestration loop — observe stream state, decide actions, dispatch."""
         while True:
-            context = "Current stream state: idle. Chat is quiet. What should Aiko do?"
+            activity = current_activity_getter() if current_activity_getter else "idle"
+            context = self._build_context(current_activity=activity)
             tool_calls = await self.decide(context)
             for call in tool_calls:
                 if call["name"] == "send_chat_response":
@@ -81,10 +140,12 @@ class OrchestratorAgent:
                         source="orchestrator",
                     ))
                 elif call["name"] == "set_activity":
+                    chosen = call["input"].get("activity", "idle")
                     await bus.publish(Event(
                         type=EventType.STREAM_STATE,
-                        payload={"activity": call["input"].get("activity")},
+                        payload={"activity": chosen},
                         priority=5,
                         source="orchestrator",
                     ))
+                    self._record_action(chosen)
             await asyncio.sleep(poll_interval)

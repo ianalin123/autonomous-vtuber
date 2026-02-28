@@ -35,3 +35,24 @@ def test_bandit_exploit_selects_best_arm():
         bandit.update(Action.REACT, reward=0.0)
     selections = [bandit.exploit() for _ in range(10)]
     assert selections.count(Action.TALK) >= 8
+
+
+def test_bandit_save_and_load(tmp_path):
+    path = str(tmp_path / "bandit.json")
+    bandit = ThompsonBandit(actions=list(Action))
+    for _ in range(10):
+        bandit.update(Action.QA, reward=1.0)
+    bandit.save(path)
+
+    loaded = ThompsonBandit.load(path)
+    assert loaded._arms[Action.QA]["alpha"] == bandit._arms[Action.QA]["alpha"]
+    assert loaded._arms[Action.QA]["beta"] == bandit._arms[Action.QA]["beta"]
+
+
+def test_bandit_load_or_create_missing_file(tmp_path):
+    path = str(tmp_path / "missing.json")
+    bandit = ThompsonBandit.load_or_create(path)
+    assert len(bandit._arms) == len(Action)
+    for arm in bandit._arms.values():
+        assert arm["alpha"] == 1.0
+        assert arm["beta"] == 1.0
