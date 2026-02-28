@@ -280,3 +280,7 @@ def create_app(agent: AnalyticsAgent | None = None) -> FastAPI:
         return {"status": "ok"}
 
     return _app
+
+
+# Module-level app for `uvicorn agents.analytics:app` compatibility
+app = create_app()
