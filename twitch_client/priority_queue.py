@@ -15,12 +15,14 @@ def _priority(msg: ChatMessage) -> int:
 class PriorityMessageQueue:
     def __init__(self) -> None:
         self._queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
+        self._counter = 0
 
     async def put(self, msg: ChatMessage) -> None:
-        await self._queue.put((-_priority(msg), msg))
+        await self._queue.put((-_priority(msg), self._counter, msg))
+        self._counter += 1
 
     async def get(self) -> ChatMessage:
-        _, msg = await self._queue.get()
+        _, _, msg = await self._queue.get()
         return msg
 
     def empty(self) -> bool:
